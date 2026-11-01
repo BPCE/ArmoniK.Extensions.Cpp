@@ -162,50 +162,23 @@ jobs:
         with:
           ref: ${{ github.ref }}
 
-      - name: Get ArmoniK.Api version
-        id: api
-        run: |
-          source ./tools/common.sh
-          echo "version=$ARMONIK_API_VERSION_DEFAULT" >> "$GITHUB_OUTPUT"
-        shell: bash
-
-      - name: Checkout ArmoniK.Api
-        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
-        with:
-          repository: aneoconsulting/ArmoniK.Api
-          ref: ${{ steps.api.outputs.version }}
-          path: ArmoniK.Api
-
       # Prebuilt MSVC binaries from conda-forge, building gRPC with vcpkg takes hours
-      - name: Install gRPC
+      - name: Install dependencies
         id: deps
         uses: mamba-org/setup-micromamba@f457c30a868e4760d3a6fcea5f25dc655b8edf39 # v3.2.1
         with:
-          environment-name: grpc
-          create-args: -c conda-forge libgrpc libprotobuf libabseil nlohmann_json zlib
+          environment-file: tools/windows/environment.yml
           init-shell: none
           cache-downloads: true
 
-      # protoc and grpc_cpp_plugin need the environment DLLs at build time
-      - name: Add environment to PATH
-        run: Add-Content $env:GITHUB_PATH "${{ steps.deps.outputs.environment-path }}\Library\bin"
-        shell: pwsh
-
-      - name: Build ArmoniK.Api
-        run: |
-          # Stop at the first failing native command, pwsh only checks the last one by default
-          $PSNativeCommandUseErrorActionPreference = $true
-          cmake -S ArmoniK.Api/packages/cpp -B ArmoniK.Api-build -DBUILD_CLIENT=ON -DBUILD_WORKER=OFF -DBUILD_TEST=OFF "-DCMAKE_PREFIX_PATH=${{ steps.deps.outputs.environment-path }}\Library"
-          cmake --build ArmoniK.Api-build --config Release --parallel
-          cmake --install ArmoniK.Api-build --config Release --prefix ArmoniK.Api-install
-        shell: pwsh
-
-      - name: Build ArmoniK Extensions
-        run: |
-          $PSNativeCommandUseErrorActionPreference = $true
-          # Quote -D arguments: PowerShell splits an unquoted "-Dname=value" at the first '.'
-          cmake -S . -B build "-DARMONIK_API_DIR=${{ github.workspace }}\ArmoniK.Api-install" "-DCMAKE_PREFIX_PATH=${{ steps.deps.outputs.environment-path }}\Library" -DBUILD_WORKER=OFF -DBUILD_DYNAMICWORKER=OFF "-DVERSION=${{ needs.versionning.outputs.version }}"
-          cmake --build build --config Release --parallel
+      # Same script as documented for users, -Verify builds and runs tools/windows/consumer against the install
+      - name: Build, install and verify
+        run: >
+          ./tools/windows/build.ps1
+          -DepsPrefix "${{ steps.deps.outputs.environment-path }}"
+          -Prefix "${{ github.workspace }}\install-windows"
+          -Version "${{ needs.versionning.outputs.version }}"
+          -Verify
         shell: pwsh
 
   build-upload-artifact:
