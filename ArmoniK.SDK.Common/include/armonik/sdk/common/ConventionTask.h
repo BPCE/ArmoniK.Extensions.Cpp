@@ -7,7 +7,7 @@ namespace ArmoniK {
 namespace Sdk {
 namespace Common {
 
-class TaskOptions;
+struct TaskOptions;
 
 /**
  * @brief Decoded convention task: what a worker needs to run it, independently of how the service code is loaded.
