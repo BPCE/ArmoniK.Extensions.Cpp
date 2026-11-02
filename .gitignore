@@ -397,3 +397,7 @@ build/
 
 .docs/content/cpp/doxygen
 .docs/content/guide/4.environment-variables.md
+
+# tools/windows/build.ps1 default output
+build-windows/
+install-windows/
