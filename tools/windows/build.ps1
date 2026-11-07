@@ -5,9 +5,11 @@ Builds and installs ArmoniK.Api (client) and the ArmoniK SDK (Client + Common) w
 .DESCRIPTION
 Runs the same steps as the build-windows-msvc CI job. gRPC, protobuf, abseil,
 nlohmann_json and zlib come from a conda environment created from
-tools/windows/environment.yml. ArmoniK.Api and the SDK are installed into -Prefix.
+tools/windows/environment.yml, or from any other CMake prefix passed with
+-DepsCMakePrefix (vcpkg, source builds). ArmoniK.Api and the SDK are installed into -Prefix.
 
-Requirements: Visual Studio 2022 (C++ workload), CMake >= 3.22, git, micromamba or conda.
+Requirements: Visual Studio 2022 (C++ workload), CMake >= 3.22, git, and either
+micromamba/conda or your own install of the dependencies.
 
 .EXAMPLE
 micromamba create -f tools\windows\environment.yml
@@ -16,6 +18,9 @@ micromamba activate armonik-sdk-windows
 
 Then in your project: -DCMAKE_PREFIX_PATH="C:\armonik;$env:CONDA_PREFIX\Library"
 and find_package(ArmoniK.SDK.Client CONFIG REQUIRED).
+
+.EXAMPLE
+.\tools\windows\build.ps1 -Prefix C:\armonik -DepsCMakePrefix C:\vcpkg\installed\x64-windows
 #>
 [CmdletBinding()]
 param(
@@ -23,6 +28,9 @@ param(
     [string]$Prefix,
     # Root of the conda environment providing the dependencies. Default: $env:CONDA_PREFIX
     [string]$DepsPrefix,
+    # CMake prefix providing the dependencies, used as is (e.g. <vcpkg>\installed\x64-windows).
+    # Overrides -DepsPrefix. Its bin\ directory, if any, is put on PATH.
+    [string]$DepsCMakePrefix,
     # Build directory. Default: <repo>\build-windows
     [string]$WorkDir,
     # ArmoniK.Api tag to build. Default: ARMONIK_API_VERSION_DEFAULT from tools/common.sh
@@ -64,11 +72,16 @@ function Invoke-CMakeProject {
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 
-if (-not $DepsPrefix) { $DepsPrefix = $env:CONDA_PREFIX }
-if (-not $DepsPrefix) { throw 'No dependency environment: activate it or pass -DepsPrefix' }
-$DepsCMake = Join-Path (Resolve-Path $DepsPrefix).Path 'Library'
-if (-not (Test-Path (Join-Path $DepsCMake 'bin\grpc_cpp_plugin.exe'))) {
-    throw "grpc_cpp_plugin.exe not found in $DepsCMake\bin, was the environment created from tools\windows\environment.yml?"
+if ($DepsCMakePrefix) {
+    $DepsCMake = (Resolve-Path $DepsCMakePrefix).Path
+} else {
+    if (-not $DepsPrefix) { $DepsPrefix = $env:CONDA_PREFIX }
+    if (-not $DepsPrefix) { throw 'No dependency environment: activate it, or pass -DepsPrefix or -DepsCMakePrefix' }
+    # conda on Windows installs C++ libraries under <env>\Library
+    $DepsCMake = Join-Path (Resolve-Path $DepsPrefix).Path 'Library'
+    if (-not (Test-Path (Join-Path $DepsCMake 'bin\grpc_cpp_plugin.exe'))) {
+        throw "grpc_cpp_plugin.exe not found in $DepsCMake\bin, was the environment created from tools\windows\environment.yml?"
+    }
 }
 # protoc and grpc_cpp_plugin need the environment DLLs at build time, the -Verify executable at run time
 $env:PATH = "$DepsCMake\bin;$env:PATH"
