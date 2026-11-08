@@ -244,6 +244,7 @@ jobs:
         run: >
           ./tools/windows/build.ps1
           -DepsCMakePrefix "${{ env.VCPKG_INSTALLED }}\${{ env.TRIPLET }}"
+          -VcpkgRoot "$env:VCPKG_INSTALLATION_ROOT"
           -Prefix "${{ github.workspace }}\install-windows"
           -Version "${{ needs.versionning.outputs.version }}"
           -Verify

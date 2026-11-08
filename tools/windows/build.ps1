@@ -20,7 +20,7 @@ Then in your project: -DCMAKE_PREFIX_PATH="C:\armonik;$env:CONDA_PREFIX\Library"
 and find_package(ArmoniK.SDK.Client CONFIG REQUIRED).
 
 .EXAMPLE
-.\tools\windows\build.ps1 -Prefix C:\armonik -DepsCMakePrefix C:\vcpkg\installed\x64-windows
+.\tools\windows\build.ps1 -Prefix C:\armonik -DepsCMakePrefix C:\vcpkg\installed\x64-windows -VcpkgRoot C:\vcpkg
 #>
 [CmdletBinding()]
 param(
@@ -31,6 +31,9 @@ param(
     # CMake prefix providing the dependencies, used as is (e.g. <vcpkg>\installed\x64-windows).
     # Overrides -DepsPrefix. Its bin\ directory, if any, is put on PATH.
     [string]$DepsCMakePrefix,
+    # vcpkg checkout. With -DepsCMakePrefix <installed>\<triplet>, configures every project with
+    # vcpkg's toolchain file, which some ports need (e.g. static zlib is zs.lib, unknown to FindZLIB)
+    [string]$VcpkgRoot,
     # Build directory. Default: <repo>\build-windows
     [string]$WorkDir,
     # ArmoniK.Api tag to build. Default: ARMONIK_API_VERSION_DEFAULT from tools/common.sh
@@ -86,6 +89,18 @@ if ($DepsCMakePrefix) {
 # protoc and grpc_cpp_plugin need the environment DLLs at build time, the -Verify executable at run time
 $env:PATH = "$DepsCMake\bin;$env:PATH"
 
+# Options added to every CMake configure, including the -Verify consumer
+$DepsOptions = @()
+if ($VcpkgRoot) {
+    if (-not $DepsCMakePrefix) { throw '-VcpkgRoot needs -DepsCMakePrefix <vcpkg installed dir>\<triplet>' }
+    $toolchain = Join-Path (Resolve-Path $VcpkgRoot).Path 'scripts\buildsystems\vcpkg.cmake'
+    if (-not (Test-Path $toolchain)) { throw "vcpkg toolchain file not found: $toolchain" }
+    $DepsOptions = @("-DCMAKE_TOOLCHAIN_FILE=$toolchain",
+        "-DVCPKG_INSTALLED_DIR=$(Split-Path $DepsCMake -Parent)",
+        "-DVCPKG_TARGET_TRIPLET=$(Split-Path $DepsCMake -Leaf)",
+        '-DVCPKG_MANIFEST_MODE=OFF')
+}
+
 if (-not $ApiVersion) { $ApiVersion = Get-CommonShDefault 'ARMONIK_API_VERSION_DEFAULT' }
 if (-not $Version) { $Version = Get-CommonShDefault 'ARMONIK_SDK_VERSION_DEFAULT' }
 if (-not $Prefix) { $Prefix = Join-Path $RepoRoot 'install-windows' }
@@ -106,22 +121,22 @@ if (-not $ApiSource) {
 
 Write-Host "ArmoniK.Api $ApiVersion, SDK $Version, $Config, prefix $Prefix"
 
-Invoke-CMakeProject -Install -Source (Join-Path $ApiSource 'packages\cpp') -Build (Join-Path $WorkDir 'api') -Options @(
+Invoke-CMakeProject -Install -Source (Join-Path $ApiSource 'packages\cpp') -Build (Join-Path $WorkDir 'api') -Options (@(
     '-DBUILD_CLIENT=ON', '-DBUILD_WORKER=OFF', '-DBUILD_TEST=OFF',
-    "-DCMAKE_PREFIX_PATH=$DepsCMake")
+    "-DCMAKE_PREFIX_PATH=$DepsCMake") + $DepsOptions)
 
-Invoke-CMakeProject -Install -Source $RepoRoot -Build (Join-Path $WorkDir 'sdk') -Options @(
+Invoke-CMakeProject -Install -Source $RepoRoot -Build (Join-Path $WorkDir 'sdk') -Options (@(
     "-DARMONIK_API_DIR=$Prefix", "-DCMAKE_PREFIX_PATH=$DepsCMake",
-    '-DBUILD_WORKER=OFF', '-DBUILD_DYNAMICWORKER=OFF', "-DVERSION=$Version")
+    '-DBUILD_WORKER=OFF', '-DBUILD_DYNAMICWORKER=OFF', "-DVERSION=$Version") + $DepsOptions)
 
 if ($Verify) {
     $consumerBuild = Join-Path $WorkDir 'consumer'
-    Invoke-CMakeProject -Source (Join-Path $PSScriptRoot 'consumer') -Build $consumerBuild -Options @(
-        "-DCMAKE_PREFIX_PATH=$Prefix;$DepsCMake")
+    Invoke-CMakeProject -Source (Join-Path $PSScriptRoot 'consumer') -Build $consumerBuild -Options (@(
+        "-DCMAKE_PREFIX_PATH=$Prefix;$DepsCMake") + $DepsOptions)
     $reported = & (Join-Path $consumerBuild "$Config\armonik_sdk_consumer.exe")
     if ($LASTEXITCODE -ne 0) { throw "armonik_sdk_consumer.exe exited with code $LASTEXITCODE" }
     if ($reported -ne $Version) { throw "Consumer reports SDK version '$reported', expected '$Version'" }
     Write-Host "Consumer project built and ran against SDK $reported"
 }
 
-Write-Host "Done. Use -DCMAKE_PREFIX_PATH=`"$Prefix;$DepsCMake`" in your project."
+Write-Host "Done. Configure your project with: `"-DCMAKE_PREFIX_PATH=$Prefix;$DepsCMake`" $($DepsOptions -join ' ')"
