@@ -202,11 +202,19 @@ jobs:
           path: build-windows/vcpkg_installed
           key: vcpkg-${{ env.TRIPLET }}-${{ hashFiles('tools/windows/vcpkg.json') }}
 
-      # Host triplet = target triplet: protoc and grpc_cpp_plugin land in the same prefix
+      # vcpkg reads port versions from its checkout: move it to the manifest baseline and
+      # re-bootstrap so the tool matches. Host triplet = target triplet puts protoc and
+      # grpc_cpp_plugin in the same prefix.
       - name: Install dependencies
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          git -C "$env:VCPKG_INSTALLATION_ROOT" fetch origin
+          $baseline = (Get-Content tools/windows/vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+          git -C "$env:VCPKG_INSTALLATION_ROOT" fetch origin $baseline
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git -C "$env:VCPKG_INSTALLATION_ROOT" checkout --detach $baseline
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:VCPKG_INSTALLATION_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install `
             --x-manifest-root=tools/windows `
             --x-install-root="$env:VCPKG_INSTALLED" `
