@@ -213,8 +213,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git -C "$env:VCPKG_INSTALLATION_ROOT" checkout --detach $baseline
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & "$env:VCPKG_INSTALLATION_ROOT\bootstrap-vcpkg.bat" -disableMetrics
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The bootstrap downloads vcpkg.exe from GitHub, retry on transient network errors
+          foreach ($attempt in 1..3) {
+            & "$env:VCPKG_INSTALLATION_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($attempt -eq 3) { exit $LASTEXITCODE }
+            Start-Sleep -Seconds 30
+          }
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install `
             --x-manifest-root=tools/windows `
             --x-install-root="$env:VCPKG_INSTALLED" `
