@@ -1,0 +1,13 @@
+{
+  "$comment": "Static dependencies for the ArmoniK SDK (Client + Common) with MSVC. See the Windows section of the installation guide.",
+  "name": "armonik-sdk-windows-deps",
+  "version-string": "0",
+  "dependencies": [
+    "abseil",
+    "grpc",
+    "nlohmann-json",
+    "protobuf",
+    "zlib"
+  ],
+  "builtin-baseline": "ec48c11eae9448c8c6e7739d93e06fa2433aa95f"
+}
