@@ -204,7 +204,7 @@ jobs:
 
       # vcpkg reads port versions from its checkout: move it to the manifest baseline and
       # re-bootstrap so the tool matches. Host triplet = target triplet puts protoc and
-      # grpc_cpp_plugin in the same prefix.
+      # grpc_cpp_plugin in the same prefix. Build trees go to D: (RUNNER_TEMP), C: is too small.
       - name: Install dependencies
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
@@ -223,6 +223,10 @@ jobs:
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install `
             --x-manifest-root=tools/windows `
             --x-install-root="$env:VCPKG_INSTALLED" `
+            --x-buildtrees-root="$env:RUNNER_TEMP\vcpkg\buildtrees" `
+            --x-packages-root="$env:RUNNER_TEMP\vcpkg\packages" `
+            --downloads-root="$env:RUNNER_TEMP\vcpkg\downloads" `
+            --clean-after-build `
             --triplet=$env:TRIPLET --host-triplet=$env:TRIPLET
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         shell: pwsh
