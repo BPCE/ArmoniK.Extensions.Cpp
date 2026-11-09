@@ -1,0 +1,23 @@
+name: vcpkg cache keep-alive
+
+# The Actions cache drops entries not restored for 7 days. Restoring the vcpkg dependencies
+# weekly on main keeps them available to every PR, instead of a 2 h rebuild after a quiet week.
+# If the cache is missing (first run, or vcpkg.json changed), this builds and saves it.
+on:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  vcpkg-static-md:
+    name: Restore or build vcpkg dependencies (x64-windows-static-md)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
+
+      - name: Dependencies
+        uses: ./.github/actions/vcpkg-windows-deps

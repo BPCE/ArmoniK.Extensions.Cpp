@@ -181,6 +181,32 @@ jobs:
           -Verify
         shell: pwsh
 
+  build-windows-msvc-static:
+    name: Build Windows MSVC static (Client + Common)
+    runs-on: windows-latest
+    needs: [versionning]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
+        with:
+          ref: ${{ github.ref }}
+
+      # Cached per manifest, kept alive weekly by vcpkg-cache.yml
+      - name: Dependencies
+        id: deps
+        uses: ./.github/actions/vcpkg-windows-deps
+
+      # No dependency DLLs exist on PATH, so -Verify also checks the consumer runs without them
+      - name: Build, install and verify
+        run: >
+          ./tools/windows/build.ps1
+          -DepsCMakePrefix "${{ steps.deps.outputs.prefix }}"
+          -VcpkgRoot "$env:VCPKG_INSTALLATION_ROOT"
+          -Prefix "${{ github.workspace }}\install-windows"
+          -Version "${{ needs.versionning.outputs.version }}"
+          -Verify
+        shell: pwsh
+
   build-upload-artifact:
     strategy:
       fail-fast: false
