@@ -3,32 +3,39 @@
 Builds and installs ArmoniK.Api (client) and the ArmoniK SDK (Client + Common) with MSVC.
 
 .DESCRIPTION
-Runs the same steps as the build-windows-msvc CI job. gRPC, protobuf, abseil,
-nlohmann_json and zlib come from a conda environment created from
-tools/windows/environment.yml, or from any other CMake prefix passed with
--DepsCMakePrefix (vcpkg, source builds). ArmoniK.Api and the SDK are installed into -Prefix.
+gRPC, protobuf, abseil, nlohmann_json and zlib come from any CMake prefix passed with
+-DepsCMakePrefix. The recommended setup builds them with vcpkg's x64-windows-static-md
+triplet and links them statically, as in the build-windows-msvc-static CI job.
+A conda environment created from tools/windows/environment.yml also works (-DepsPrefix);
+it is there to ease testing in the CI pipeline (build-windows-msvc job).
+ArmoniK.Api and the SDK are installed into -Prefix.
 
-Requirements: Visual Studio 2022 (C++ workload), CMake >= 3.22, git, and either
-micromamba/conda or your own install of the dependencies.
+Requirements: Visual Studio 2022 (C++ workload), CMake >= 3.22, git, and vcpkg
+(or micromamba/conda, or your own install of the dependencies).
+
+.EXAMPLE
+C:\vcpkg\vcpkg.exe install --x-manifest-root=tools\windows --x-install-root=vcpkg_installed `
+    --triplet=x64-windows-static-md --host-triplet=x64-windows-static-md --clean-after-build
+.\tools\windows\build.ps1 -Prefix C:\armonik -DepsCMakePrefix vcpkg_installed\x64-windows-static-md -VcpkgRoot C:\vcpkg
+
+Recommended. Configure your project with the toolchain options printed at the end,
+and find_package(ArmoniK.SDK.Client CONFIG REQUIRED).
 
 .EXAMPLE
 micromamba create -f tools\windows\environment.yml
 micromamba activate armonik-sdk-windows
 .\tools\windows\build.ps1 -Prefix C:\armonik
 
-Then in your project: -DCMAKE_PREFIX_PATH="C:\armonik;$env:CONDA_PREFIX\Library"
-and find_package(ArmoniK.SDK.Client CONFIG REQUIRED).
-
-.EXAMPLE
-.\tools\windows\build.ps1 -Prefix C:\armonik -DepsCMakePrefix C:\vcpkg\installed\x64-windows -VcpkgRoot C:\vcpkg
+conda-forge setup used in CI. Then in your project:
+-DCMAKE_PREFIX_PATH="C:\armonik;$env:CONDA_PREFIX\Library".
 #>
 [CmdletBinding()]
 param(
     # Install prefix for ArmoniK.Api and the SDK. Default: <repo>\install-windows
     [string]$Prefix,
-    # Root of the conda environment providing the dependencies. Default: $env:CONDA_PREFIX
+    # Root of a conda environment providing the dependencies (CI test setup). Default: $env:CONDA_PREFIX
     [string]$DepsPrefix,
-    # CMake prefix providing the dependencies, used as is (e.g. <vcpkg>\installed\x64-windows).
+    # CMake prefix providing the dependencies, used as is (e.g. vcpkg_installed\x64-windows-static-md).
     # Overrides -DepsPrefix. Its bin\ directory, if any, is put on PATH.
     [string]$DepsCMakePrefix,
     # vcpkg checkout. With -DepsCMakePrefix <installed>\<triplet>, configures every project with
