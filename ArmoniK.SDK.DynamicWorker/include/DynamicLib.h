@@ -57,12 +57,13 @@ public:
   }
 
   /**
-   * @brief Destructor
+   * @brief Destructor, unloads the library without throwing
    */
   ~DynamicLib();
 
   /**
    * @brief Unload the library
+   * @throws ArmoniK::Sdk::Common::ArmoniKSdkException if dlclose fails
    */
   void unload();
 

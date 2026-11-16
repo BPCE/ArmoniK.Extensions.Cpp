@@ -1,5 +1,6 @@
 #include "DynamicLib.h"
 #include <armonik/sdk/common/ArmoniKSdkException.h>
+#include <cstdio>
 #include <dlfcn.h>
 #include <stdexcept>
 
@@ -21,8 +22,14 @@ DynamicLib::DynamicLib(const char *filename) {
 
 /**
  * @brief Destructor
+ * @note A destructor must not throw: a failed dlclose is reported on stderr instead
  */
-DynamicLib::~DynamicLib() { unload(); }
+DynamicLib::~DynamicLib() {
+  if (handle && dlclose(handle) != 0) {
+    const char *error = dlerror();
+    std::fprintf(stderr, "DynamicLib: could not dlclose: %s\n", error ? error : "unknown error");
+  }
+}
 
 /**
  * @brief Unload the library
