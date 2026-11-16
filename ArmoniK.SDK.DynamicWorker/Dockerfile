@@ -61,6 +61,10 @@ RUN cmake -DCMAKE_INSTALL_PREFIX="/app/install" -DBUILD_CLIENT=OFF -DBUILD_DYNAM
 
 # Start with the latest Alpine base image for the final stage
 FROM alpine:3.18.12 AS runner
+ARG TARGETARCH
+# tini runs as PID 1 and forwards SIGTERM to the worker: the kernel drops a signal sent to a
+# namespace init that has no handler for it, so the worker would otherwise only stop on SIGKILL
+ADD --chmod=755 https://github.com/krallin/tini/releases/download/v0.19.0/tini-static-${TARGETARCH} /tini
 # Install all the necessary dependencies required for the build process
 # These include tools and libraries for building and compiling the source code
 RUN apk update && apk add --no-cache \
@@ -86,4 +90,4 @@ ENV PATH="/app/install/bin:$PATH"
 # Set the entrypoint for the application's test executable
 # This is the command that will be executed when the container is run
 WORKDIR /app/install/bin
-ENTRYPOINT ["./ArmoniK.SDK.DynamicWorker"]
+ENTRYPOINT ["/tini", "-s", "-vv", "--", "./ArmoniK.SDK.DynamicWorker"]
