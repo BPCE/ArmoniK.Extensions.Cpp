@@ -5,6 +5,13 @@
 #include <armonik/common/options/ControlPlane.h>
 #include <armonik/common/utils/Configuration.h>
 
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <mutex>
+#include <set>
+#include <stdexcept>
+#include <string>
 #include <utility>
 
 /**
@@ -59,26 +66,72 @@ armonik::api::common::options::ComputePlane &ComputePlane::set_impl() {
 // Control Plane
 
 namespace {
-int getIntFromConfig(const Configuration &config, const std::string &key, int default_value) {
-  auto value_str = config.get(key);
-  int value = default_value; // Default value
-  try {
-    value = std::stoi(value_str);
-  } catch (...) {
-    // Ignore invalid value and keep default
+/**
+ * @brief Warn on stderr that the value of a key is ignored, once per key and value in the process
+ * @details The control plane options are read before any logger exists, and several times per session.
+ */
+void warnIgnoredValue(const std::string &key, const std::string &value_str, std::int64_t default_value,
+                      const char *reason) {
+  static std::mutex mutex;
+  static std::set<std::pair<std::string, std::string>> warned;
+  std::lock_guard<std::mutex> lock(mutex);
+  if (warned.emplace(key, value_str).second) {
+    std::cerr << "ArmoniK SDK: ignoring " << key << "='" << value_str << "' (" << reason << "), using default "
+              << default_value << std::endl;
   }
-  return value > 0 ? value : default_value; // Ensure positive value
+}
+
+/**
+ * @brief Read a positive integer option, up to max_value
+ * @details An unset key gives default_value. 0 is accepted when it is the default, since it then means "not set".
+ * Any other value that is not a positive integer up to max_value gives default_value with a warning.
+ */
+std::int64_t getPositiveFromConfig(const Configuration &config, const std::string &key, std::int64_t default_value,
+                                   std::int64_t max_value) {
+  const auto value_str = config.get(key);
+  const auto first = value_str.find_first_not_of(" \t");
+  if (first == std::string::npos) {
+    return default_value;
+  }
+  const auto last = value_str.find_last_not_of(" \t");
+  const auto trimmed = value_str.substr(first, last - first + 1);
+
+  std::int64_t value = 0;
+  try {
+    std::size_t parsed = 0;
+    value = std::stoll(trimmed, &parsed);
+    if (parsed != trimmed.size()) {
+      warnIgnoredValue(key, value_str, default_value, "not an integer");
+      return default_value;
+    }
+  } catch (const std::out_of_range &) {
+    warnIgnoredValue(key, value_str, default_value, "out of range");
+    return default_value;
+  } catch (const std::invalid_argument &) {
+    warnIgnoredValue(key, value_str, default_value, "not an integer");
+    return default_value;
+  }
+
+  if (value == 0 && default_value == 0) {
+    return 0;
+  }
+  if (value <= 0) {
+    warnIgnoredValue(key, value_str, default_value, "must be positive");
+    return default_value;
+  }
+  if (value > max_value) {
+    warnIgnoredValue(key, value_str, default_value, "out of range");
+    return default_value;
+  }
+  return value;
+}
+
+int getIntFromConfig(const Configuration &config, const std::string &key, int default_value) {
+  return static_cast<int>(getPositiveFromConfig(config, key, default_value, std::numeric_limits<int>::max()));
 }
 
 std::int64_t getInt64FromConfig(const Configuration &config, const std::string &key, std::int64_t default_value) {
-  auto value_str = config.get(key);
-  std::int64_t value = default_value; // Default value
-  try {
-    value = std::stoll(value_str);
-  } catch (...) {
-    // Ignore invalid value and keep default
-  }
-  return value > 0 ? value : default_value; // Ensure positive value
+  return getPositiveFromConfig(config, key, default_value, std::numeric_limits<std::int64_t>::max());
 }
 } // namespace
 

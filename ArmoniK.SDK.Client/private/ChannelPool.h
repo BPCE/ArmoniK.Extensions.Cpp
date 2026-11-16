@@ -1,5 +1,6 @@
 #pragma once
 
+#include <armonik/client/channel/ChannelFactory.h>
 #include <armonik/common/logger/formatter.h>
 #include <armonik/common/logger/logger.h>
 #include <armonik/common/logger/writer.h>
@@ -72,13 +73,13 @@ public:
   void ReleaseChannel(std::shared_ptr<grpc::Channel> channel);
 
   /**
-   * @brief Check the state of a channel and shut it down in case of failure
+   * @brief Check whether a channel is shut down or failing, without starting a connection
    *
    * @param channel The gRPC channel
-   * @return true if channel has been shut down
+   * @return true if the channel must be dropped from the pool
    * @return false if not
    */
-  static bool ShutdownOnFailure(std::shared_ptr<grpc::Channel> channel);
+  static bool ShutdownOnFailure(const std::shared_ptr<grpc::Channel> &channel);
 
   /**
    * Calls the function with an acquired channel
@@ -172,6 +173,8 @@ public:
 
 private:
   ArmoniK::Sdk::Common::Properties properties_;
+  /** Built once from properties_, which must be declared before it */
+  armonik::api::client::ChannelFactory channel_factory_;
   std::queue<std::shared_ptr<grpc::Channel>> channel_pool_;
   std::mutex channel_mutex_;
   armonik::api::common::logger::LocalLogger logger_;

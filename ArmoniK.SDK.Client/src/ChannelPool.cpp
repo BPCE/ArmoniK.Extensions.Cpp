@@ -30,11 +30,7 @@ std::shared_ptr<grpc::Channel> ChannelPool::AcquireChannel() {
       return channel;
     }
   }
-  armonik::api::common::logger::Logger logger{armonik::api::common::logger::writer_console(),
-                                              armonik::api::common::logger::formatter_plain(true)};
-  armonik::api::client::ChannelFactory channelFactory(
-      static_cast<armonik::api::common::utils::Configuration>(properties_.configuration), logger);
-  channel = channelFactory.create_channel();
+  channel = channel_factory_.create_channel();
   logger_.debug("Created and acquired new channel from pool");
   return channel;
 }
@@ -49,8 +45,10 @@ void ChannelPool::ReleaseChannel(std::shared_ptr<grpc::Channel> channel) {
   }
 }
 
-bool ChannelPool::ShutdownOnFailure(std::shared_ptr<grpc::Channel> channel) {
-  switch ((*channel).GetState(true)) {
+bool ChannelPool::ShutdownOnFailure(const std::shared_ptr<grpc::Channel> &channel) {
+  // Read the state without try_to_connect: a check must not start a connection on an idle channel. The next RPC on
+  // the channel connects it.
+  switch (channel->GetState(false)) {
   case GRPC_CHANNEL_CONNECTING:
     break;
   case GRPC_CHANNEL_IDLE:
@@ -61,7 +59,6 @@ bool ChannelPool::ShutdownOnFailure(std::shared_ptr<grpc::Channel> channel) {
     break;
 
   case GRPC_CHANNEL_TRANSIENT_FAILURE:
-    channel.reset();
     return true;
     break;
 
@@ -76,8 +73,9 @@ bool ChannelPool::ShutdownOnFailure(std::shared_ptr<grpc::Channel> channel) {
 }
 
 ChannelPool::ChannelPool(ArmoniK::Sdk::Common::Properties properties, armonik::api::common::logger::Logger &logger)
-    : properties_(std::move(properties)), logger_(logger.local({{"sdk_version", ArmoniK::Sdk::Common::getVersion()}})) {
-}
+    : properties_(std::move(properties)),
+      channel_factory_(static_cast<armonik::api::common::utils::Configuration>(properties_.configuration), logger),
+      logger_(logger.local({{"sdk_version", ArmoniK::Sdk::Common::getVersion()}})) {}
 ChannelPool::~ChannelPool() = default;
 
 ChannelPool::ChannelGuard::ChannelGuard(Internal::ChannelPool *pool) : pool_(pool) {
