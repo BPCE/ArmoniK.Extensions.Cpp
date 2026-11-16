@@ -22,6 +22,9 @@
 #include <armonik/sdk/common/Version.h>
 #include <armonik/sdk/common/internal/ConventionPayload.h>
 #include <chrono>
+#include <istream>
+#include <stdexcept>
+#include <string>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -33,17 +36,90 @@ namespace Internal {
 
 namespace {
 /**
+ * @brief Source of the data of a result upload, read chunk by chunk
+ */
+class ChunkReader {
+public:
+  virtual ~ChunkReader() = default;
+
+  /**
+   * @brief Go back to the start of the data, to retry an upload
+   */
+  virtual void Rewind() = 0;
+
+  /**
+   * @brief Read the next chunk of at most max_size bytes into chunk
+   * @return false if there is no data left
+   */
+  virtual bool Read(std::string &chunk, std::size_t max_size) = 0;
+};
+
+/**
+ * @brief Reads the chunks from data held in memory
+ */
+class StringViewReader : public ChunkReader {
+public:
+  explicit StringViewReader(armonik::api::string_view data) : data_(data), remaining_(data) {}
+  void Rewind() override { remaining_ = data_; }
+  bool Read(std::string &chunk, std::size_t max_size) override {
+    if (remaining_.empty()) {
+      return false;
+    }
+    auto next = remaining_.substr(0, max_size);
+    chunk.assign(next.data(), next.size());
+    remaining_ = remaining_.substr(next.size());
+    return true;
+  }
+
+private:
+  armonik::api::string_view data_;
+  armonik::api::string_view remaining_;
+};
+
+/**
+ * @brief Reads the chunks from a seekable stream, from its position at construction
+ */
+class StreamReader : public ChunkReader {
+public:
+  explicit StreamReader(std::istream &stream) : stream_(stream), start_(stream.tellg()) {
+    if (start_ == std::istream::pos_type(-1)) {
+      throw std::invalid_argument("The upload stream is not seekable");
+    }
+  }
+  void Rewind() override {
+    stream_.clear();
+    if (!stream_.seekg(start_)) {
+      throw std::runtime_error("Unable to rewind the upload stream");
+    }
+  }
+  bool Read(std::string &chunk, std::size_t max_size) override {
+    chunk.resize(max_size);
+    stream_.read(&chunk[0], static_cast<std::streamsize>(max_size));
+    chunk.resize(static_cast<std::size_t>(stream_.gcount()));
+    if (stream_.bad()) {
+      throw std::runtime_error("Unable to read the upload stream");
+    }
+    return !chunk.empty();
+  }
+
+private:
+  std::istream &stream_;
+  std::istream::pos_type start_;
+};
+
+/**
  * @brief Upload a large result using a stream, retrying the upload in case of error
  * @param pool The channel pool to use to perform the requests
  * @param session Id of the session where the result has been created
  * @param result_id Id of the result to upload
- * @param data Content of the result to upload
+ * @param reader Source of the content of the result, rewound before each attempt
  * @param data_max_chunk_size Size of the chunks to upload the data
  * @param logger Logger
+ * @return Number of bytes uploaded
  */
-void upload_large_result(ArmoniK::Sdk::Client::Internal::ChannelPool &pool, std::string session, std::string result_id,
-                         armonik::api::string_view data, std::size_t data_chunk_max_size,
-                         armonik::api::common::logger::ILogger &logger) {
+std::size_t upload_large_result(ArmoniK::Sdk::Client::Internal::ChannelPool &pool, const std::string &session,
+                                const std::string &result_id, ChunkReader &reader, std::size_t data_chunk_max_size,
+                                armonik::api::common::logger::ILogger &logger) {
 
   std::exception_ptr eptr;
 
@@ -51,7 +127,7 @@ void upload_large_result(ArmoniK::Sdk::Client::Internal::ChannelPool &pool, std:
   const int max_retry = 3;
   for (int retry = 0; retry < max_retry; ++retry) {
     eptr = nullptr;
-    auto remaining_data = data;
+    std::size_t sent = 0;
 
     // If retry is available (not the last iteration), add prefix to the logs to indicate the upload will be retried
     // even though there was an error, and log errors as warnings
@@ -61,6 +137,7 @@ void upload_large_result(ArmoniK::Sdk::Client::Internal::ChannelPool &pool, std:
         can_retry ? armonik::api::common::logger::Level::Warning : armonik::api::common::logger::Level::Error;
 
     try {
+      reader.Rewind();
       auto channel = pool.GetChannel();
 
       grpc::ClientContext context{};
@@ -77,13 +154,11 @@ void upload_large_result(ArmoniK::Sdk::Client::Internal::ChannelPool &pool, std:
       request.clear_id();
 
       // Chunk the content to send it in multiple messages
-      while (!remaining_data.empty()) {
-        auto chunk = remaining_data.substr(0, data_chunk_max_size);
-        request.mutable_data_chunk()->assign(chunk.data(), chunk.size());
+      while (reader.Read(*request.mutable_data_chunk(), data_chunk_max_size)) {
+        sent += request.data_chunk().size();
         if (!stream->Write(request)) {
           throw armonik::api::common::exceptions::ArmoniKApiException("Unable to continue upload result " + result_id);
         }
-        remaining_data = remaining_data.substr(chunk.size());
       }
 
       if (!stream->WritesDone()) {
@@ -97,8 +172,8 @@ void upload_large_result(ArmoniK::Sdk::Client::Internal::ChannelPool &pool, std:
 
       // If the uploaded size is different than the actual data size, upload must be retried
       // Otherwise, we are good to go.
-      if (response.result().size() == std::int64_t(data.size())) {
-        break;
+      if (response.result().size() == std::int64_t(sent)) {
+        return sent;
       }
 
       // If the uploaded size is different, delete the uploaded data from the object storage
@@ -114,8 +189,8 @@ void upload_large_result(ArmoniK::Sdk::Client::Internal::ChannelPool &pool, std:
       }
 
       std::stringstream ss;
-      ss << retry_notif << "Corrupted result " << result_id << " upload: mismatched between client size ("
-         << data.size() << " B) and server size (" << response.result().size() << ")";
+      ss << retry_notif << "Corrupted result " << result_id << " upload: mismatched between client size (" << sent
+         << " B) and server size (" << response.result().size() << ")";
 
       throw std::make_exception_ptr(armonik::api::common::exceptions::ArmoniKApiException(ss.str()));
     } catch (const std::exception &e) {
@@ -127,9 +202,17 @@ void upload_large_result(ArmoniK::Sdk::Client::Internal::ChannelPool &pool, std:
     }
   }
 
-  if (eptr) {
-    std::rethrow_exception(eptr);
-  }
+  std::rethrow_exception(eptr);
+}
+
+/**
+ * @brief Upload a large result held in memory, retrying the upload in case of error
+ */
+void upload_large_result(ArmoniK::Sdk::Client::Internal::ChannelPool &pool, const std::string &session,
+                         const std::string &result_id, armonik::api::string_view data, std::size_t data_chunk_max_size,
+                         armonik::api::common::logger::ILogger &logger) {
+  StringViewReader reader(data);
+  upload_large_result(pool, session, result_id, reader, data_chunk_max_size, logger);
 }
 
 // Submit()/SubmitRaw() reserve upload_byte_budget_ bytes for the whole call up front, on the calling
@@ -531,7 +614,7 @@ std::size_t SessionServiceImpl::DataChunkMaxSize() {
   return data_chunk_max_size_;
 }
 
-std::string SessionServiceImpl::UploadLibrary(const std::string &content) {
+std::string SessionServiceImpl::UploadLibrary(std::istream &content) {
   const std::size_t data_chunk_max_size = DataChunkMaxSize();
 
   // Create a single result entry to hold the library blob
@@ -541,9 +624,10 @@ std::string SessionServiceImpl::UploadLibrary(const std::string &content) {
   });
   const std::string result_id = reply.at("library");
 
-  upload_large_result(channel_pool, session, result_id, content, data_chunk_max_size, logger_);
+  StreamReader reader(content);
+  const auto size = upload_large_result(channel_pool, session, result_id, reader, data_chunk_max_size, logger_);
 
-  logger_.info("Uploaded library blob: " + result_id + " (" + std::to_string(content.size()) + " bytes)");
+  logger_.info("Uploaded library blob: " + result_id + " (" + std::to_string(size) + " bytes)");
   return result_id;
 }
 

@@ -6,6 +6,7 @@
 #include "armonik/sdk/client/WaitBehavior.h"
 #include <armonik/client/results/ResultsClient.h>
 #include <armonik/sdk/common/TaskOptions.h>
+#include <istream>
 #include <mutex>
 #include <results_service.grpc.pb.h>
 
@@ -187,11 +188,11 @@ public:
                                   const Common::TaskOptions &task_options);
 
   /**
-   * @brief Uploads raw library content to ArmoniK blob storage.
-   * @param content Raw bytes of the .so file
+   * @brief Uploads library content to ArmoniK blob storage, reading it chunk by chunk.
+   * @param content Seekable stream of the .so file, read from its current position
    * @return Blob ID (result ID) of the uploaded library
    */
-  std::string UploadLibrary(const std::string &content);
+  std::string UploadLibrary(std::istream &content);
 
   /**
    * @brief Get the session Id associated with this service

@@ -3,7 +3,6 @@
 #include <armonik/sdk/common/Diagnostics.h>
 #include <armonik/sdk/common/Version.h>
 #include <fstream>
-#include <sstream>
 #include <string>
 #include <utility>
 
@@ -55,9 +54,7 @@ void SessionService::UploadLibrary(const std::string &library_path, Common::Dyna
   if (!f) {
     throw std::runtime_error("Cannot open library file: " + library_path);
   }
-  std::ostringstream buf;
-  buf << f.rdbuf();
-  lib.library_blob_id = impl->UploadLibrary(buf.str());
+  lib.library_blob_id = impl->UploadLibrary(f);
 }
 
 void SessionService::WaitResults(std::set<std::string> task_ids, WaitBehavior waitBehavior,
