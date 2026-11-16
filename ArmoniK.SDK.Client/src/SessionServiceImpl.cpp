@@ -154,14 +154,7 @@ std::vector<std::string> SessionServiceImpl::SubmitRaw(const std::vector<std::st
   EnsureNotCalledFromWorkerThread("SubmitRaw");
 
   const std::size_t message_overhead = 128;
-  std::size_t data_chunk_max_size =
-      override_message_size_
-          ? override_message_size_
-          : channel_pool.WithChannel([](std::shared_ptr<grpc::Channel> channel) {
-              return armonik::api::client::ResultsClient(armonik::api::grpc::v1::results::Results::NewStub(channel))
-                  .get_service_configuration()
-                  .data_chunk_max_size;
-            });
+  std::size_t data_chunk_max_size = DataChunkMaxSize();
 
   // Number of bytes to be sent in the next CreateResult request
   std::size_t data_batched = 0;
@@ -361,15 +354,7 @@ std::vector<std::string> SessionServiceImpl::Submit(const std::vector<Common::Ta
   EnsureNotCalledFromWorkerThread("Submit");
 
   const std::size_t message_overhead = 128;
-  const std::size_t data_chunk_max_size =
-      override_message_size_
-          ? static_cast<std::size_t>(override_message_size_)
-          : channel_pool.WithChannel([](std::shared_ptr<grpc::Channel> channel) {
-              return static_cast<std::size_t>(
-                  armonik::api::client::ResultsClient(armonik::api::grpc::v1::results::Results::NewStub(channel))
-                      .get_service_configuration()
-                      .data_chunk_max_size);
-            });
+  const std::size_t data_chunk_max_size = DataChunkMaxSize();
 
   // Flatten all raw-data inputs across all tasks so they can be batch-created
   struct InputRef {
@@ -530,15 +515,24 @@ std::vector<std::string> SessionServiceImpl::Submit(const std::vector<Common::Ta
   return SubmitRaw(serialized, deps, std::move(handler), task_options);
 }
 
+std::size_t SessionServiceImpl::DataChunkMaxSize() {
+  // Fetch the server configuration once. If the call throws, the next call tries again.
+  std::call_once(data_chunk_max_size_once_, [this] {
+    data_chunk_max_size_ =
+        override_message_size_
+            ? static_cast<std::size_t>(override_message_size_)
+            : channel_pool.WithChannel([](std::shared_ptr<grpc::Channel> channel) {
+                return static_cast<std::size_t>(
+                    armonik::api::client::ResultsClient(armonik::api::grpc::v1::results::Results::NewStub(channel))
+                        .get_service_configuration()
+                        .data_chunk_max_size);
+              });
+  });
+  return data_chunk_max_size_;
+}
+
 std::string SessionServiceImpl::UploadLibrary(const std::string &content) {
-  const std::size_t data_chunk_max_size =
-      override_message_size_
-          ? override_message_size_
-          : channel_pool.WithChannel([](std::shared_ptr<grpc::Channel> channel) {
-              return armonik::api::client::ResultsClient(armonik::api::grpc::v1::results::Results::NewStub(channel))
-                  .get_service_configuration()
-                  .data_chunk_max_size;
-            });
+  const std::size_t data_chunk_max_size = DataChunkMaxSize();
 
   // Create a single result entry to hold the library blob
   auto reply = channel_pool.WithChannel([&](std::shared_ptr<grpc::Channel> channel) {

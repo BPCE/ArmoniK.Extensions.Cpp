@@ -108,6 +108,21 @@ private:
   int override_message_size_;
 
   /**
+   * @brief Maximum size of a data chunk, from override_message_size_ or the server configuration
+   */
+  std::size_t data_chunk_max_size_ = 0;
+
+  /**
+   * @brief Guards the single initialization of data_chunk_max_size_
+   */
+  std::once_flag data_chunk_max_size_once_;
+
+  /**
+   * @brief Maximum size of a data chunk, fetched from the server on the first call only
+   */
+  std::size_t DataChunkMaxSize();
+
+  /**
    * @brief Bounds the total result-payload bytes reserved at once during WaitResults()
    */
   ByteBudget download_byte_budget_;
