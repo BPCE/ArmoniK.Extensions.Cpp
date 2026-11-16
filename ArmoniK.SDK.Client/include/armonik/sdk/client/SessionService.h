@@ -138,7 +138,8 @@ public:
   [[nodiscard]] const std::string &getSession() const;
 
   /**
-   * @brief Discards all results, cancels the tasks and cancels the session. No handler will be called.
+   * @brief Discards all results, cancels the tasks, cancels the session and purges its data. No handler will be
+   * called. The session ends in the purged status.
    * @warning The session and its data will not be recoverable.
    * @warning Using this on a session with running or pending tasks will result in undefined behavior
    */

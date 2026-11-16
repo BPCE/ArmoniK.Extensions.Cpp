@@ -181,7 +181,7 @@ TEST(SessionService, drop_after_done_test) {
   auto status = session_service->GetSession(get_context().get(), request, &response);
 
   ASSERT_TRUE(status.ok());
-  ASSERT_EQ(response.session().status(), armonik::api::grpc::v1::session_status::SESSION_STATUS_CANCELLED);
+  ASSERT_EQ(response.session().status(), armonik::api::grpc::v1::session_status::SESSION_STATUS_PURGED);
 
   // Either throws
   try {

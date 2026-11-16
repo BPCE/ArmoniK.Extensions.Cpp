@@ -889,35 +889,11 @@ void SessionServiceImpl::DropSession() {
         .cancel_session(session);
   });
 
-  // Create the result filter for result.session_id == session
-  armonik::api::grpc::v1::results::Filters filters;
-  armonik::api::grpc::v1::results::FilterField filter_field;
-  filter_field.mutable_field()->mutable_result_raw_field()->set_field(
-      armonik::api::grpc::v1::results::RESULT_RAW_ENUM_FIELD_SESSION_ID);
-  filter_field.mutable_filter_string()->set_value(session);
-  filter_field.mutable_filter_string()->set_operator_(armonik::api::grpc::v1::FILTER_STRING_OPERATOR_EQUAL);
-  *filters.mutable_or_()->Add()->mutable_and_()->Add() = filter_field;
-  int page = 0;
-  const int page_size = 500;
-  int total = 0;
-  do {
-    channel_pool.WithChannel([&](const std::shared_ptr<::grpc::Channel> &channel) {
-      auto results = armonik::api::client::ResultsClient(armonik::api::grpc::v1::results::Results::NewStub(channel));
-      // List results
-      auto rawList = results.list_results(filters, total, page++, page_size);
-      std::vector<std::string> ids;
-      ids.reserve(rawList.size());
-      for (auto &&raw : rawList) {
-        ids.push_back(raw.result_id());
-      }
-      // Delete results
-      try {
-        results.delete_results_data(session, ids);
-      } catch (const std::exception &e) {
-        logger_.info(std::string("Couldn't completely destroy batch of results : ") + e.what());
-      }
-    });
-  } while (page * page_size < total);
+  // Delete the data of every result of the session on the server side. The session must be cancelled first.
+  channel_pool.WithChannel([&](const std::shared_ptr<::grpc::Channel> &channel) {
+    return armonik::api::client::SessionsClient(armonik::api::grpc::v1::sessions::Sessions::NewStub(channel))
+        .purge_session(session);
+  });
 }
 
 void SessionServiceImpl::CleanupTasks(std::vector<std::string> task_ids) {
