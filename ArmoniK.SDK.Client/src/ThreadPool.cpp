@@ -33,6 +33,8 @@ ThreadPool::Task::Task(ThreadPool::Task &&other) noexcept : func_(std::move(othe
 }
 ThreadPool::Task &ThreadPool::Task::operator=(ThreadPool::Task &&other) noexcept {
   if (this != &other) {
+    // This task is replaced: count it as finished in its join set, as ~Task() does
+    ReleaseJoinSet();
     func_ = std::move(other.func_);
     join_set_ = other.join_set_;
     other.join_set_ = nullptr;
@@ -40,7 +42,9 @@ ThreadPool::Task &ThreadPool::Task::operator=(ThreadPool::Task &&other) noexcept
   return *this;
 }
 
-ThreadPool::Task::~Task() {
+ThreadPool::Task::~Task() { ReleaseJoinSet(); }
+
+void ThreadPool::Task::ReleaseJoinSet() noexcept {
   if (join_set_) {
     // Decrement the task count in the join set
     std::lock_guard<std::mutex> lock(join_set_->mutex_);
@@ -48,6 +52,7 @@ ThreadPool::Task::~Task() {
     if (join_set_->task_count_ == 0) {
       join_set_->wake_condition_.notify_all();
     }
+    join_set_ = nullptr;
   }
 }
 

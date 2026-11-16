@@ -41,6 +41,11 @@ private:
      */
     JoinSet *join_set_ = nullptr;
 
+    /**
+     * @brief Count this task as finished in its join set, if any, and detach it from the join set
+     */
+    void ReleaseJoinSet() noexcept;
+
   private:
     friend class ThreadPool;
 
