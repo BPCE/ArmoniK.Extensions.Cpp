@@ -1,3 +1,13 @@
+# tini built from source, as in ArmoniK.Core: the release binary buffers its own output,
+# so its -vv logs are delayed, or lost when the container is SIGKILLed
+FROM alpine:3.24.3 AS tini-build
+RUN apk add gcc cmake make musl-dev
+ADD https://github.com/krallin/tini.git .
+
+# By default, tini uses buffered IO. Disable buffering to have logs in real-time
+RUN sed -i '/int main/a setvbuf(stdout, NULL, _IOLBF, BUFSIZ);setvbuf(stderr, NULL, _IOLBF, BUFSIZ);' src/tini.c
+RUN cmake . && make
+
 # Start with the latest Alpine base image for the build stage
 FROM ubuntu:24.04 AS builder
 
@@ -61,10 +71,9 @@ RUN cmake "-DCMAKE_INSTALL_PREFIX=/app/install" "-DBUILD_CLIENT=OFF" "-DBUILD_DY
 
 # Start with the latest Alpine base image for the final stage
 FROM ubuntu:24.04 AS runner
-ARG TARGETARCH
 # tini runs as PID 1 and forwards SIGTERM to the worker: the kernel drops a signal sent to a
 # namespace init that has no handler for it, so the worker would otherwise only stop on SIGKILL
-ADD --chmod=755 https://github.com/krallin/tini/releases/download/v0.19.0/tini-static-${TARGETARCH} /tini
+COPY --from=tini-build /tini-static /tini
 # Install all the necessary dependencies required for the build process
 # These include tools and libraries for building and compiling the source code
 RUN apt-get update && DEBIAN_FRONTEND="noninteractive" TZ="Europe/London" apt-get install -y \
