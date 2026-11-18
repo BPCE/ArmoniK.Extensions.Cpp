@@ -189,10 +189,10 @@ std::size_t upload_large_result(ArmoniK::Sdk::Client::Internal::ChannelPool &poo
       }
 
       std::stringstream ss;
-      ss << retry_notif << "Corrupted result " << result_id << " upload: mismatched between client size (" << sent
+      ss << "Corrupted result " << result_id << " upload: mismatched between client size (" << sent
          << " B) and server size (" << response.result().size() << ")";
 
-      throw std::make_exception_ptr(armonik::api::common::exceptions::ArmoniKApiException(ss.str()));
+      throw armonik::api::common::exceptions::ArmoniKApiException(ss.str());
     } catch (const std::exception &e) {
       logger.log(loglevel, std::string(retry_notif) + "Failed to upload result " + result_id + ": " + e.what());
       eptr = std::current_exception();
